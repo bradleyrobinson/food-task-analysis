@@ -1,0 +1,141 @@
+---
+title: "Experiments"
+output: html_notebook
+---
+First open up all the files, but make sure we are in the proper working directory.
+
+```{r}
+setwd("~/Data Analysis/Food Task")
+current_files <- list.files(pattern = "[a-zA-Z1-9_].csv")
+current_files
+```
+
+Looks like that's working, so let's read them all. We can do this with the 
+do.call() function
+```{r}
+# output <- sapply(current_files, read.csv, stringsAsFactors = FALSE)
+all_data <- do.call("rbind", lapply(current_files, read.csv, header = TRUE, stringsAsFactors = FALSE))
+```
+
+
+```{r}
+all_data
+```
+What are the average food ratings?
+
+```{r}
+library(tidyverse)
+by_rating <- group_by(all_data, Food.Rated)
+rating <- by_rating %>%  
+  summarise(avg_food = mean(Food.Rating, na.rm = TRUE)) %>%
+  arrange(desc(avg_food))
+```
+
+```{r}
+rating
+```
+```{r}
+difference <- function(food_rating) {
+  return (food_rating[1] - food_rating[2])
+}
+```
+
+
+
+Now, let's group by participant, then see if we can figure out how to get the difference:
+```{r}
+by_participant <- group_by(all_data, Participant, Food.Rated)
+food_change <- by_participant %>%
+  summarise(food_change = difference(Food.Rating),
+            original_rating = Food.Rating[1],
+            final_rating = Food.Rating[2],
+            avg_rating = mean(Food.Rating, na.rm = TRUE))
+food_change
+```
+We have to find a way to use the difference along with the scores, so let's just make a dataset that has all of the decision trials together first, then we can see what we can do from there.
+```{r}
+decision_task <- all_data %>%
+  filter(!is.na(Trial.Food.C)) %>%
+  select(Participant, Trial.Food.C, Trial.Food.D, Decision, Opponent.Decision, RT)
+decision_task
+```
+
+Some analysis that could be done with behavior:
+comparing the reaction time to the rating difference in the decision task
+Do foods with similar ratings have greater changes?
+Try machine learning trial by trial on the decision data.
+
+We could group decisions based on 'dissonance' to see if there are activation changes in the brain.
+
+But first, let's take a look at some things in pictures!
+```{r}
+ggplot(data = all_data, mapping = aes(Food.Rating, na.rm = TRUE, fill = Participant)) +
+  geom_histogram(binwidth = 1, bins=10)
+```
+
+
+I admit it, I just added the Participant numbers because I think it looks cool. It doesn't really tell us a lot right now. We could, however, look at their distirbutions:
+```{r}
+just_ratings <- filter(all_data,!is.na(Food.Rating))
+just_ratings
+ggplot(data = just_ratings) +
+  geom_boxplot(mapping = aes(x = reorder(Participant, Food.Rating, FUN = median), y = Food.Rating, fill = Participant)) +
+  guides(fill = FALSE) +
+  theme(legend.position = 'bottom')
+```
+
+Because the distributions can be soo different between participants, it is probably best to avoid extrapoliting a mean from all of the participants. So that means that I should find a way to get a sense of how these scores are usually distributed, and then learn from that.
+
+How to divide up the different orderings:
+1. Find median value, treat it as the true middle, use the percentile ratings
+Possible issues: When you divide into thirds or quartiles, there might be a   lack of balance
+2. Rank order, divide by the rank 
+Assumes unordered distribution
+
+
+Dissonance, was there a positive/negative rating change?
+Behaviorally, how many items are close?
+Does reaction time change with high dissonant tasks?
+
+What kind of statistical tests should be used for behavioral data?
+If it's one factor, T-test is one way
+example:
+    high cognitive dissonance vs low cognitive dissonance and RT
+    Independent samples T-Test: Cooperation defection vs high low cognitive         dissonance
+It there's more ANOVA with multiple measures
+
+
+Here, we can see reaction times
+```{r}
+decision_task %>%
+  group_by(Participant) %>%
+  arrange(Participant, RT)
+```
+```{r}
+get_prerating_c <- function(d) {
+  item <- filter(just_ratings, Participant == d[1], Food.Rated == d[2])
+  return(item[1, 3])
+}
+get_prerating_d <- function(d) {
+  item <- filter(just_ratings, Participant == d[1], Food.Rated == d[3])
+  return(item[1,3])
+}
+
+```
+Let's try this function out:
+```{r}
+
+decision_task_t <- as_tibble(decision_task)
+with_rating <- decision_task_t %>%
+  mutate(
+    c_rating = apply(decision_task_t, 1, FUN=get_prerating_c), 
+    d_rating = apply(decision_task_t, 1, FUN=get_prerating_d)
+  )
+```
+
+
+```{r}
+with_rating
+just_ratings
+```
+

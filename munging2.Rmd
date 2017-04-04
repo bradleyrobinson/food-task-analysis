@@ -1,0 +1,141 @@
+---
+title: "Munging Two"
+output: html_notebook
+---
+
+This is my second attempt at munging the data. This time I'm going to try to make sure I use the right functions.
+```{r}
+(current_files <- list.files(pattern = '[a-zA-Z0-9_].csv'))
+```
+Now read the data in using tidyverse
+```{r}
+library(tidyverse)
+all_data <- do.call("rbind", lapply(current_files, read_csv, col_names = c("participant", "food_rated", "food_rating", "trial_food_c", "trial_food_d", "decision", "opponent_decision", "rt", 'x'), skip=1, col_types = cols(
+  participant = col_character(),
+  food_rated = col_character(),
+  food_rating = col_integer(),
+  trial_food_c = col_character(),
+  trial_food_d = col_character(),
+  decision = col_character(),
+  opponent_decision = col_character(),
+  rt = col_double(),
+  x = col_character()
+)))
+```
+We had to specify a lot of things, but the advantage is that things have been read correctly.
+```{r}
+all_data
+```
+Now it's time to start processing the data. See munging1.rmd for some visualizations
+```{r}
+difference <- function(food_rating) {
+  return (food_rating[1] - food_rating[2])
+}
+by_participant <- group_by(all_data, participant, food_rated)
+food_change <- by_participant %>%
+  summarise(food_change = difference(food_rating),
+            original_rating = food_rating[1],
+            final_rating = food_rating[2],
+            avg_rating = mean(food_rating, na.rm = TRUE))
+food_change
+```
+Separate the decision trials into its own tribble:
+```{r}
+decision_task <- all_data %>%
+  filter(!is.na(trial_food_c)) %>%
+  select(participant, trial_food_c, trial_food_d, decision, opponent_decision, rt) %>%
+  group_by(participant)
+```
+
+```{r}
+just_ratings <- filter(food_change,!is.na(original_rating))
+```
+
+
+Let's filter this to have the c_food
+```{r}
+d_task_with_rating <- decision_task %>% 
+  left_join(just_ratings) %>%
+  filter(trial_food_c == food_rated) %>%
+  rename(c_change = food_change,
+         c_rating = original_rating) %>%
+  select(participant, trial_food_c, trial_food_d, decision, opponent_decision, c_change, c_rating)
+```
+
+Now let's get the d_food into the dataframe:
+```{r}
+d_task_with_rating <- d_task_with_rating %>% 
+  left_join(just_ratings) %>%
+  filter(trial_food_d == food_rated) %>%
+  rename(d_change = food_change,
+         d_rating = original_rating) %>%
+  select(participant, trial_food_c, trial_food_d, decision, opponent_decision, c_change, c_rating, d_change, d_rating)
+```
+How often do we see changes if the participant defects?
+```{r}
+(defect_decision <- filter(d_task_with_rating, decision == 'D'))
+mean(defect_decision$d_change)
+mean(defect_decision$c_change)
+(cooperate_decision <- filter(d_task_with_rating, decision == 'C'))
+mean(cooperate_decision$d_change)
+mean(cooperate_decision$c_change)
+```
+What if we can create a test of stats?
+```{r}
+d_task_with_rating$decision <- factor(d_task_with_rating$decision, labels = c("C", "D"))
+d_task_with_rating.mod1 = lm(d_change ~ decision, data = d_task_with_rating)
+d_task_with_rating.mod1
+```
+
+```{r}
+anova(d_task_with_rating.mod1)
+confint(d_task_with_rating.mod1)
+```
+How about the c_change?
+```{r}
+d_task_with_rating.mod2 = lm(c_change ~ decision, data = d_task_with_rating)
+d_task_with_rating.mod2
+anova(d_task_with_rating.mod2)
+confint(d_task_with_rating.mod2)
+```
+Let's try this again, but let's do the mean of each participant change, to see if that makes a difference:
+```{r}
+participant_decision_summary <- d_task_with_rating %>%
+  group_by(participant) %>%
+  summarise(
+    c_change_mean = mean(c_change),
+    d_change_mean = mean(d_change)
+    # Let's create a column for whether they are competitive or not
+  )
+participant_decision_summary
+```
+
+Now let's do the same statistical tests, but group based on... well, nvm.
+```{r}
+#participant_decision_summary.mod2 = lm(c_change_mean ~ decision, data = d_task_with_rating)
+#d_task_with_rating.mod2
+#anova(d_task_with_rating.mod2)
+#confint(d_task_with_rating.mod2)
+```
+
+
+
+
+
+For the neural data, let's see if we can separate out the data based on low dissonance vs. high dissonance. How will we do it? Let's create a new column, consonance.
+```{r}
+(d_task_with_rating <-
+  mutate(d_task_with_rating,
+         consonance = d_rating - c_rating
+         ))
+```
+Now group by participant and order based on consonance
+```{r}
+(consonance_task <- d_task_with_rating %>%
+  group_by(participant) %>%
+  arrange(participant, consonance))
+```
+Now let's get a median for each participant, and use that to split them in half and create a new column which just has two groups, high dissonance and low dissonance. That way we can try comparing them with reaction time using an ANOVA test.
+```{r}
+
+```
